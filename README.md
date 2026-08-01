@@ -152,3 +152,36 @@ To try to raise test accuracy, `data.py` supports an `augment` flag (`train.py -
 - **The transformer suffered by far the most** (-19.90 / -15.18 pts). It was already the slowest-converging architecture at 1 epoch (see the earlier comparison — it needed ~15 epochs to close its gap with the CNN). Stacking augmentation-induced difficulty on top of an already-too-small training budget compounds the problem: it now has even less signal per epoch to learn both "what a digit is" and "what a digit looks like under distortion."
 - **CNN was hurt the least** (-0.22 / -0.41 pts). Its convolutional weight-sharing already gives it some built-in translation invariance — part of what augmentation is trying to teach the other architectures from scratch, the CNN already gets architecturally, so the extra example variability is comparatively less "new" for it to absorb.
 - **Expected next result**: based on the 1-epoch-vs-15-epoch pattern seen with the un-augmented models, augmentation's benefit is likely a *longer-horizon* effect. The natural follow-up is running augmented training for the full 15 epochs and checking whether it now beats the un-augmented 15-epoch results (the actual question the assignment is asking) — 1 epoch is too short a budget to fairly judge whether augmentation helps.
+
+## Full Augmented Training Results (15 Epochs)
+
+Same augmentation pipeline as above (`RandomRotation(10°)` → `RandomAffine` → `RandomErasing`, train split only), now run for the full 15 epochs, batch size 128, Adam (lr=1e-3) — matching the settings of the original [Full Training Results](#full-training-results-15-epochs) exactly, so the two are directly comparable.
+
+| Model | Final train loss | Final train acc | Test acc |
+|---|---|---|---|
+| MLP | 0.2306 | 92.89% | 97.76% |
+| CNN | 0.0570 | 98.19% | 99.42% |
+| Transformer | 0.1413 | 95.42% | 98.72% |
+| MLP Revised | 0.1632 | 94.81% | 98.47% |
+| CNN Revised | 0.0696 | 97.84% | 99.44% |
+| Transformer Revised | 0.1188 | 96.22% | 98.43% |
+
+## Comparison: Unaugmented vs. Augmented (15 Epochs)
+
+| Model | Unaugmented Test Acc | Augmented Test Acc | Δ |
+|---|---|---|---|
+| MLP | 97.92% | 97.76% | -0.16 |
+| CNN | 99.14% | 99.42% | +0.28 |
+| Transformer | 98.32% | 98.72% | +0.40 |
+| MLP Revised | 98.35% | 98.47% | +0.12 |
+| CNN Revised | 99.15% | 99.44% | +0.29 |
+| Transformer Revised | 98.25% | 98.43% | +0.18 |
+
+### Analysis
+
+- **The predicted reversal happened.** At 1 epoch, augmentation hurt every model (up to -19.90 pts for the transformer). At 15 epochs, it now *helps* 5 of the 6 models. This confirms augmentation is a longer-horizon regularizer: it needs enough training time for the model to actually learn the invariances (rotation/shift/occlusion robustness) the distorted examples are teaching, rather than just seeing them as harder noise.
+- **CNN Revised (augmented) is the best model in the entire project so far — 99.44% test accuracy**, edging out augmented CNN (99.42%) and beating every unaugmented variant. This directly answers the assignment's premise that augmentation is "a good opportunity to add test %" — it was, but only once given a training budget long enough to pay off.
+- **Transformer and Transformer Revised gained the most from augmentation** (+0.40 / +0.18 pts) among the models that improved, on top of already being the architectures that gained the most from more epochs in general (see the earlier 1-epoch-vs-15-epoch comparison). Interpretation: architectures with weaker built-in inductive biases have more "invariances" left to learn from data, so they have the most to gain from both extra epochs and extra augmented variety — the two effects compound in the same direction for the transformer.
+- **Plain MLP is the one model that did *not* benefit** (-0.16 pts, essentially flat/noise-level). It has no spatial structure modeling at all — no convolutional translation invariance, no attention-based flexible spatial reasoning — so it has the hardest time using augmented examples to learn a genuinely more robust representation; it likely just needs a rotated/shifted image to look sufficiently "different" from the original in raw pixel space, without any architectural bias to help it recognize them as the same underlying digit. Notably, MLP Revised (more capacity + BatchNorm) *did* benefit slightly (+0.12), suggesting that once you add capacity, the model can start extracting a small amount of value from augmentation even without spatial architecture.
+- **CNN's gain from augmentation, while real, is modest** (+0.28 / +0.29 pts) — consistent with the 1-epoch finding that the CNN was hurt least by augmentation to begin with. Convolution already encodes much of what augmentation teaches (some translation robustness), so there's simply less headroom left for augmentation to unlock; most of the CNN's ceiling was already being reached architecturally, not through data variety.
+- **Overall conclusion for this assignment**: augmentation is a net positive at a full training budget (best model overall uses it), but the "1-epoch snapshot" would have wrongly suggested the opposite — the same training-budget caveat that applied to the architecture comparison applies here too.
