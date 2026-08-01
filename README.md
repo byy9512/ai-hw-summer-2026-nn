@@ -59,27 +59,6 @@ Each base model has a `*_revised.py` counterpart applying one targeted improveme
 - **[`cnn_revised.py`](models/cnn_revised.py)** — adds `BatchNorm2d` after each convolution
 - **[`transformer_revised.py`](models/transformer_revised.py)** — mean-pools all patch tokens instead of using a `[CLS]` token
 
-## Project structure
-
-```
-data.py              # MNIST train/test dataloaders
-registry.py           # maps model names -> classes
-train.py              # training loop + CLI
-test.py               # evaluation loop + CLI
-models/
-  mlp.py                    # MLP
-  cnn.py                    # CNN
-  transformer.py             # Transformer encoder (ViT-style)
-  mlp_revised.py             # MLP + BatchNorm + extra layer
-  cnn_revised.py             # CNN + BatchNorm
-  transformer_revised.py     # Transformer + mean-pooling
-  __init__.py
-```
-
-## Status
-
-Model architectures, training loop, and evaluation loop are implemented and working end-to-end. Image augmentation experiments and full multi-epoch training runs are still to come — results below are from a single epoch.
-
 ## Setup
 
 ```bash
@@ -114,3 +93,39 @@ python3 test.py cnn
 - **Transformer lags substantially in this single-epoch snapshot** (77.52% vs. 98.01%/94.34%). Self-attention has no built-in spatial locality — every patch attends to every other patch from layer one, with no inherent notion of "nearby" — so the model has to learn spatial structure entirely from the position embeddings and data itself. This takes more training than a CNN, especially in epoch 1. Transformers are also known to be more data/compute-hungry than CNNs; expect the gap to narrow substantially with more epochs.
 - **All three revised variants improved over their base version at 1 epoch** — BatchNorm speeds up and stabilizes early convergence for MLP (+2.26 pts) and CNN (+0.30 pts), and mean-pooling gave the transformer a solid early boost (+4.56 pts) over `[CLS]`-token pooling, though it's still far behind the other two architectures at this stage.
 - **Note on train vs. test accuracy**: train accuracy is a running average computed batch-by-batch *during* the epoch (including early batches when weights were still near-random), while test accuracy is measured once, after training, using the final weights — so it's expected and not a sign of unusually good generalization that test accuracy comes out higher than train accuracy here.
+
+## Full Training Results (15 Epochs)
+
+**Full run** — 15 epochs, batch size 128, Adam (lr=1e-3), no augmentation.
+
+| Model | Params | Final train loss | Final train acc | Test acc |
+|---|---|---|---|---|
+| MLP | 101,770 | 0.0392 | 98.70% | 97.92% |
+| CNN | 421,642 | 0.0062 | 99.79% | 99.14% |
+| Transformer | 139,018 | 0.0630 | 97.98% | 98.32% |
+| MLP Revised | 235,914 | 0.0257 | 99.12% | 98.35% |
+| CNN Revised | 421,834 | 0.0124 | 99.58% | 99.15% |
+| Transformer Revised | 138,890 | 0.0539 | 98.23% | 98.25% |
+
+### Analysis
+
+- **CNN remains the top performer** (99.14%/99.15%), but its lead over the other architectures has shrunk drastically compared to epoch 1. Given enough training, all three architectures converge toward MNIST's practical ceiling (~99%+) — the gap that mattered most in the 1-epoch snapshot was mostly a *convergence speed* gap, not a hard ceiling on what each architecture can ultimately learn.
+- **Transformer closed almost its entire deficit.** From 77.52% at epoch 1 to 98.32% at epoch 15 — it now beats the plain MLP and sits within ~0.8 points of the CNN. This confirms the earlier prediction: self-attention lacks a built-in spatial locality prior, so it needs more gradient steps to learn from data what convolution gets "for free" architecturally, but once it has enough training it's very competitive on a small, well-behaved dataset like MNIST.
+- **MLP is now clearly the weakest of the three base architectures** (97.92%), a reversal from the 1-epoch table where it beat the transformer. With enough training, the architectures that model spatial structure (CNN, and eventually the transformer via learned position embeddings) pull ahead of the one that never sees spatial structure at all.
+- **Revised vs. base, at full training, is a mixed bag** — MLP Revised (+0.43 pts) and CNN Revised (+0.01 pts, i.e. essentially tied) still edge out their base versions, but Transformer Revised (98.25%) actually ends up marginally *below* base Transformer (98.32%), reversing its 1-epoch advantage. Mean-pooling gave the transformer a faster start, but by epoch 15 the `[CLS]`-token variant caught up and edged slightly ahead — the difference (0.07 pts) is well within run-to-run noise, so this is best read as "roughly equivalent at convergence" rather than a real regression.
+
+## Comparison: 1 Epoch vs. Full Training (15 Epochs)
+
+| Model | 1-Epoch Test Acc | 15-Epoch Test Acc | Δ |
+|---|---|---|---|
+| MLP | 94.34% | 97.92% | +3.58 |
+| CNN | 98.01% | 99.14% | +1.13 |
+| Transformer | 77.52% | 98.32% | +20.80 |
+| MLP Revised | 96.60% | 98.35% | +1.75 |
+| CNN Revised | 98.31% | 99.15% | +0.84 |
+| Transformer Revised | 82.08% | 98.25% | +16.17 |
+
+- **CNN was already near its ceiling after 1 epoch** (+1.13 / +0.84 pts of headroom left) — its inductive bias gets it to a good solution almost immediately, so extra epochs mainly polish, rather than transform, its performance.
+- **MLP improves steadily but moderately** (+3.58 / +1.75 pts) — it's simple enough to converge relatively fast, but it has no architectural advantage left to unlock with more training, so its ceiling is inherently lower than the other two.
+- **Transformer improves by far the most** (+20.80 / +16.17 pts) — this is the headline result of the full run. The 1-epoch table made the transformer look like a clearly inferior architecture for this task; the 15-epoch table shows that conclusion was really about training budget, not architecture. Ranking models on a single epoch would have been misleading here — it rewarded architectures with strong inductive biases (CNN) and penalized ones that must learn structure from data (transformer), even though the latter is competitive once given comparable training.
+- **Practical takeaway**: convergence speed and final accuracy are different axes, and a fair architecture comparison needs to control for training budget — otherwise a model that "loses" early may simply need more epochs, not a better architecture.
