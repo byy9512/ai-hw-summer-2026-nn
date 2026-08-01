@@ -51,19 +51,34 @@ A ViT-style ("Vision Transformer") encoder-only transformer.
 - ~139K parameters
 - Self-attention lets every patch attend to every other patch directly, giving it a global receptive field from the first layer (unlike the CNN, which builds up receptive field gradually through pooling)
 
+### Revised variants
+
+Each base model has a `*_revised.py` counterpart applying one targeted improvement:
+
+- **[`mlp_revised.py`](models/mlp_revised.py)** — adds `BatchNorm1d` and a second hidden layer (784→256→128→10)
+- **[`cnn_revised.py`](models/cnn_revised.py)** — adds `BatchNorm2d` after each convolution
+- **[`transformer_revised.py`](models/transformer_revised.py)** — mean-pools all patch tokens instead of using a `[CLS]` token
+
 ## Project structure
 
 ```
+data.py              # MNIST train/test dataloaders
+registry.py           # maps model names -> classes
+train.py              # training loop + CLI
+test.py               # evaluation loop + CLI
 models/
-  mlp.py            # MLP
-  cnn.py            # CNN
-  transformer.py    # Transformer encoder (ViT-style)
+  mlp.py                    # MLP
+  cnn.py                    # CNN
+  transformer.py             # Transformer encoder (ViT-style)
+  mlp_revised.py             # MLP + BatchNorm + extra layer
+  cnn_revised.py             # CNN + BatchNorm
+  transformer_revised.py     # Transformer + mean-pooling
   __init__.py
 ```
 
 ## Status
 
-Model architectures are implemented and verified to produce correct output shapes (`(batch, 10)` logits). Training loop, evaluation, and image augmentation experiments are still to come.
+Model architectures, training loop, and evaluation loop are implemented and working end-to-end. Image augmentation experiments and full multi-epoch training runs are still to come — results below are from a single epoch.
 
 ## Setup
 
@@ -71,8 +86,31 @@ Model architectures are implemented and verified to produce correct output shape
 python3 -m venv .venv
 source .venv/bin/activate
 pip install torch torchvision
+
+# train, e.g.:
+python3 train.py cnn --epochs 5
+
+# test, e.g.:
+python3 test.py cnn
 ```
 
 ## Results
 
-TBD — will be added after training/testing.
+**Preliminary — 1 epoch**, batch size 256, Adam (lr=1e-3), no augmentation. These are a sanity check that the pipeline works end-to-end, not final numbers; full multi-epoch results will replace this table.
+
+| Model | Params | Train loss | Train acc | Test acc |
+|---|---|---|---|---|
+| MLP | 101,770 | 0.4010 | 88.30% | 94.34% |
+| CNN | 421,642 | 0.2560 | 92.08% | 98.01% |
+| Transformer | 139,018 | 1.2831 | 53.92% | 77.52% |
+| MLP Revised | 235,914 | 0.3423 | 91.31% | 96.60% |
+| CNN Revised | 421,834 | 0.2028 | 93.78% | 98.31% |
+| Transformer Revised | 138,890 | 1.2528 | 54.67% | 82.08% |
+
+### Analysis
+
+- **CNN wins clearly, even after just one epoch.** Its convolutional inductive bias — local connectivity and weight sharing — matches the structure of image data directly, so it needs very little training to start recognizing strokes and edges. It reaches 98%+ test accuracy in a single pass.
+- **MLP is a reasonable baseline but behind the CNN.** It flattens the image and treats every pixel as an independent feature, discarding spatial relationships entirely. It still learns fast (simple architecture, few parameters) but tops out well below the CNN's accuracy.
+- **Transformer lags substantially in this single-epoch snapshot** (77.52% vs. 98.01%/94.34%). Self-attention has no built-in spatial locality — every patch attends to every other patch from layer one, with no inherent notion of "nearby" — so the model has to learn spatial structure entirely from the position embeddings and data itself. This takes more training than a CNN, especially in epoch 1. Transformers are also known to be more data/compute-hungry than CNNs; expect the gap to narrow substantially with more epochs.
+- **All three revised variants improved over their base version at 1 epoch** — BatchNorm speeds up and stabilizes early convergence for MLP (+2.26 pts) and CNN (+0.30 pts), and mean-pooling gave the transformer a solid early boost (+4.56 pts) over `[CLS]`-token pooling, though it's still far behind the other two architectures at this stage.
+- **Note on train vs. test accuracy**: train accuracy is a running average computed batch-by-batch *during* the epoch (including early batches when weights were still near-random), while test accuracy is measured once, after training, using the final weights — so it's expected and not a sign of unusually good generalization that test accuracy comes out higher than train accuracy here.
