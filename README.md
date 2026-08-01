@@ -129,3 +129,26 @@ python3 test.py cnn
 - **MLP improves steadily but moderately** (+3.58 / +1.75 pts) — it's simple enough to converge relatively fast, but it has no architectural advantage left to unlock with more training, so its ceiling is inherently lower than the other two.
 - **Transformer improves by far the most** (+20.80 / +16.17 pts) — this is the headline result of the full run. The 1-epoch table made the transformer look like a clearly inferior architecture for this task; the 15-epoch table shows that conclusion was really about training budget, not architecture. Ranking models on a single epoch would have been misleading here — it rewarded architectures with strong inductive biases (CNN) and penalized ones that must learn structure from data (transformer), even though the latter is competitive once given comparable training.
 - **Practical takeaway**: convergence speed and final accuracy are different axes, and a fair architecture comparison needs to control for training budget — otherwise a model that "loses" early may simply need more epochs, not a better architecture.
+
+## Image Augmentation Comparison (1 Epoch)
+
+To try to raise test accuracy, `data.py` supports an `augment` flag (`train.py --augment`) that applies random augmentation to the **train** split only — the test split is always left unaugmented so evaluation stays a fixed, fair benchmark. The augmentation pipeline: `RandomRotation(10°)` → `RandomAffine` (±10% translate, 0.9–1.1x scale) → `RandomErasing` (p=0.1, small patches).
+
+**Same settings as the original 1-epoch run** — 1 epoch, batch size 256, Adam (lr=1e-3) — with augmentation turned on, for direct comparison:
+
+| Model | Unaugmented Test Acc (1 Epoch) | Augmented Test Acc (1 Epoch) | Δ |
+|---|---|---|---|
+| MLP | 94.34% | 92.90% | -1.44 |
+| CNN | 98.01% | 97.79% | -0.22 |
+| Transformer | 77.52% | 57.62% | -19.90 |
+| MLP Revised | 96.60% | 95.57% | -1.03 |
+| CNN Revised | 98.31% | 97.90% | -0.41 |
+| Transformer Revised | 82.08% | 66.90% | -15.18 |
+
+### Analysis
+
+- **Augmentation hurt every single model at 1 epoch** — an important and slightly counterintuitive result, since the assignment frames augmentation as "a good opportunity to add test %." At this training budget it does the opposite.
+- **Why**: augmentation makes each training example harder — a rotated, shifted, partially-erased digit is objectively more difficult to fit than the clean original. Train accuracy dropped sharply across the board (e.g. MLP: 88.30% → 71.15%, transformer: 53.92% → 35.35%), confirming the model is spending its one epoch learning from a noisier, harder-to-fit distribution rather than the clean one. Augmentation is fundamentally a regularizer that trades a bit of easy training-set fit for better generalization — but that trade only pays off once the model has had enough epochs to actually learn the invariances (rotation/shift/occlusion robustness) the augmentation is trying to teach. One epoch isn't enough time for that payoff to materialize; all you see here is the added difficulty.
+- **The transformer suffered by far the most** (-19.90 / -15.18 pts). It was already the slowest-converging architecture at 1 epoch (see the earlier comparison — it needed ~15 epochs to close its gap with the CNN). Stacking augmentation-induced difficulty on top of an already-too-small training budget compounds the problem: it now has even less signal per epoch to learn both "what a digit is" and "what a digit looks like under distortion."
+- **CNN was hurt the least** (-0.22 / -0.41 pts). Its convolutional weight-sharing already gives it some built-in translation invariance — part of what augmentation is trying to teach the other architectures from scratch, the CNN already gets architecturally, so the extra example variability is comparatively less "new" for it to absorb.
+- **Expected next result**: based on the 1-epoch-vs-15-epoch pattern seen with the un-augmented models, augmentation's benefit is likely a *longer-horizon* effect. The natural follow-up is running augmented training for the full 15 epochs and checking whether it now beats the un-augmented 15-epoch results (the actual question the assignment is asking) — 1 epoch is too short a budget to fairly judge whether augmentation helps.

@@ -52,18 +52,20 @@ def main():
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--augment", action="store_true", help="apply image augmentation to the train split")
     args = parser.parse_args()
 
     device = get_device()
-    print(f"using device: {device}")
+    print(f"using device: {device}, augment: {args.augment}")
 
-    train_loader, _ = get_dataloaders(batch_size=args.batch_size)
+    train_loader, _ = get_dataloaders(batch_size=args.batch_size, augment=args.augment)
     model = MODEL_REGISTRY[args.model]()
 
     train_model(model, train_loader, device, epochs=args.epochs, lr=args.lr)
 
     CHECKPOINT_DIR.mkdir(exist_ok=True)
-    ckpt_path = CHECKPOINT_DIR / f"{args.model}.pt"
+    suffix = "_aug" if args.augment else ""
+    ckpt_path = CHECKPOINT_DIR / f"{args.model}{suffix}.pt"
     torch.save(model.state_dict(), ckpt_path)
     print(f"saved checkpoint to {ckpt_path}")
 

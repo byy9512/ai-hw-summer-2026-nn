@@ -30,6 +30,7 @@ def main():
     parser.add_argument("model", choices=MODEL_REGISTRY.keys())
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--checkpoint", type=str, default=None)
+    parser.add_argument("--augment", action="store_true", help="load the checkpoint trained with augmentation")
     args = parser.parse_args()
 
     device = get_device()
@@ -38,11 +39,12 @@ def main():
     _, test_loader = get_dataloaders(batch_size=args.batch_size)
     model = MODEL_REGISTRY[args.model]().to(device)
 
-    ckpt_path = Path(args.checkpoint) if args.checkpoint else CHECKPOINT_DIR / f"{args.model}.pt"
+    suffix = "_aug" if args.augment else ""
+    ckpt_path = Path(args.checkpoint) if args.checkpoint else CHECKPOINT_DIR / f"{args.model}{suffix}.pt"
     model.load_state_dict(torch.load(ckpt_path, map_location=device))
 
     accuracy = evaluate_model(model, test_loader, device)
-    print(f"test accuracy for {args.model}: {accuracy:.2f}%")
+    print(f"test accuracy for {args.model}{suffix}: {accuracy:.2f}%")
 
 
 if __name__ == "__main__":
